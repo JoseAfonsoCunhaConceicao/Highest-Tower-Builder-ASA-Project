@@ -18,6 +18,7 @@
      clippy::indexing_slicing                     // Enforce bounds-checked access or iterators over raw 'v[i]'
 )]
 
+use std::io::{self, Read};
 use std::cmp::Ordering;
 
 /// Represents a 3D block in a specific canonical orientation where `w <= l`.
@@ -57,22 +58,96 @@ impl Block {
           ]
      }
 
-     /// Compares two blocks in topological order (smallest base first, tallest height first on ties).
+     /// Compares two blocks in topological order (biggest base first, tallest height first on ties).
      #[must_use]
      fn cmp_topological(&self, other: &Self) -> Ordering {
-        self.w
-            .cmp(&other.w)
-            .then_with(|| self.l.cmp(&other.l))
+        other.w
+            .cmp(&self.w)
+            .then_with(|| other.l.cmp(&self.l))
             .then_with(|| other.h.cmp(&self.h))
     }
 }
 
+
+/// Extracts the next integer `u32` from the buffer, starting at the current position
+#[must_use]
+fn next_u32(buffer: &[u8], cursor: &mut usize) -> Option<u32> {
+     // 1. Skip white spaces
+     while let Some(&byte) = buffer.get(*cursor) {
+          if byte.is_ascii_whitespace() {
+               *cursor += 1;
+          } else {
+               break;
+          }
+     }
+
+     // If buffer is empty
+     if *cursor >= buffer.len() {
+          return None;
+     }
+
+     // 2. Accumulate the number
+     let mut value: u32 = 0;
+     while let Some(&byte) = buffer.get(*cursor) {
+          if byte.is_ascii_digit() {
+               let digit = u32::from(byte - b'0');
+               value = value * 10 + digit;
+               *cursor += 1;
+          } else {
+               break;
+          }
+     }
+
+     Some(value)
+}
+
 /// Entry point of the application.
 fn main() {
-    let rotations = Block::orientations(5, 10, 20);
+     let mut buffer = Vec::new();
+     let mut cursor: usize = 0;
 
-    for b in rotations {
-     debug_assert!(b.w <= b.l, "Normalization invariant violated: w > l.");
-     println!("Orientation -> w: {}, l: {}, h: {}", b.w, b.l, b.h);
-    }
+     // Read the input's
+     if io::stdin().read_to_end(&mut buffer).is_err() {
+          println!("Error while reading input.");
+          return;
+     }
+
+     // Parse first integer (n)
+     let Some(n) = next_u32(&buffer, &mut cursor) else {
+          println!("Error while reading input: failed while obtaining N.");
+          return;
+     };
+     
+     let Ok(number_of_blocks) = usize::try_from(n) else {
+          println!("Error: N is too large for memory indexing.");
+          return;
+     };
+
+     // The total number of blocks is the number of inputs multiplied by the 3 considered orientations
+     let number_of_orientations = number_of_blocks * 3;
+     let mut blocks: Vec<Block> = Vec::with_capacity(number_of_orientations);
+
+     // Fill the blocks vector with all considered blocks and all of its orientations
+     for _ in 0..number_of_blocks {
+          let Some(side_a) = next_u32(&buffer, &mut cursor) else {
+               println!("Error while reading input: failed while obtaining block dimensions.");
+               return; 
+          };
+          let Some(side_b) = next_u32(&buffer, &mut cursor) else {
+               println!("Error while reading input: failed while obtaining block dimensions.");
+               return; 
+          };
+          let Some(height) = next_u32(&buffer, &mut cursor) else {
+               println!("Error while reading input: failed while obtaining block dimensions.");
+               return; 
+          };
+
+          blocks.extend(Block::orientations(side_a, side_b, height));
+     }
+
+     // Sort the blocks vector by decreasing order (width), ties are managed by length and height, in this order
+     blocks.sort_unstable_by(Block::cmp_topological);
+
+     // Filter duplicated blocks (same base), keeps the tallest
+     blocks.dedup_by(|a, b| { a.w == b.w && a.l == b.l });
 }
