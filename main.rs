@@ -18,6 +18,8 @@
      clippy::indexing_slicing                     // Enforce bounds-checked access or iterators over raw 'v[i]'
 )]
 
+use std::cmp::Ordering;
+
 /// Represents a 3D block in a specific canonical orientation where `w <= l`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Block {
@@ -54,6 +56,15 @@ impl Block {
                Self::new(d3, d2, d1)
           ]
      }
+
+     /// Compares two blocks in topological order (smallest base first, tallest height first on ties).
+     #[must_use]
+     fn cmp_topological(&self, other: &Self) -> Ordering {
+        self.w
+            .cmp(&other.w)
+            .then_with(|| self.l.cmp(&other.l))
+            .then_with(|| other.h.cmp(&self.h))
+    }
 }
 
 /// Entry point of the application.
