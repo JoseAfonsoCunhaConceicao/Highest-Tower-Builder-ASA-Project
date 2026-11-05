@@ -1,4 +1,7 @@
 /target
 
+# Test files
+*.in
+
 # Mac config files
 .DS_Store
