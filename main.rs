@@ -61,9 +61,9 @@ impl Block {
      /// Compares two blocks in topological order (biggest base first, tallest height first on ties).
      #[must_use]
      fn cmp_topological(&self, other: &Self) -> Ordering {
-        other.w
-            .cmp(&self.w)
-            .then_with(|| other.l.cmp(&self.l))
+        self.w
+            .cmp(&other.w)
+            .then_with(|| self.l.cmp(&other.l))
             .then_with(|| other.h.cmp(&self.h))
     }
 }
@@ -161,7 +161,7 @@ fn main() {
           if let Some(current_block) = blocks.get(big_idx) {
                for little_idx in 0..big_idx {
                     if let Some(block) = blocks.get(little_idx) {
-                         if (current_block.w < block.w) && (current_block.l < block.l) {
+                         if (current_block.w > block.w) && (current_block.l > block.l) {
                               let base_height;
                               let current_height;
                               let possible_new_height;
@@ -223,7 +223,6 @@ fn main() {
           }
           
           let number_of_used_blocks: usize = used_blocks.len();
-          used_blocks.reverse();
           
           println!("{max_height} {number_of_used_blocks}");
           for idx in used_blocks {
