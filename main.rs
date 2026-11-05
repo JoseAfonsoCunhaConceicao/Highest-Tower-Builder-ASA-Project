@@ -19,7 +19,7 @@
 )]
 
 use std::io::{self, Read};
-use std::cmp::Ordering;
+use std::cmp::{Ordering, max};
 
 /// Represents a 3D block in a specific canonical orientation where `w <= l`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,4 +150,54 @@ fn main() {
 
      // Filter duplicated blocks (same base), keeps the tallest
      blocks.dedup_by(|a, b| { a.w == b.w && a.l == b.l });
+
+     // New array with the block's heights
+     let mut table: Vec<u32> = blocks.iter().map(|block| block.h).collect();
+
+     for big_idx in 0..blocks.len() {
+          if let Some(current_block) = blocks.get(big_idx) {
+               for little_idx in 0..big_idx {
+                    if let Some(block) = blocks.get(little_idx) {
+                         if (current_block.w < block.w) && (current_block.l < block.l) {
+                              let base_height;
+                              let current_height;
+                              let possible_new_height;
+                              
+                              if let Some(height) = table.get(little_idx) {
+                                   base_height = *height;
+                              } else {
+                                   println!("Error while calcuating the tower max height.");
+                                   return; 
+                              }
+                              if let Some(height) = base_height.checked_add(current_block.h) {
+                                   possible_new_height = height;
+                              } else {
+                                   println!("Error while calcuating the tower max height.");
+                                   return; 
+                              }
+                              if let Some(height) = table.get_mut(big_idx) {
+                                   current_height = height;
+                              } else {
+                                   println!("Error while calcuating the tower max height.");
+                                   return;
+                              }
+
+                              *current_height = max(*current_height, possible_new_height);
+                         }
+                    } else {
+                         println!("Error while calcuating the tower max height.");
+                         return;
+                    }
+               }
+          } else {
+               println!("Error while calcuating the tower max height.");
+               return;
+          }
+     }
+
+     if let Some(&max_height) = table.iter().max() {
+          println!("{max_height}");
+     } else {
+          println!("0");
+     }
 }
