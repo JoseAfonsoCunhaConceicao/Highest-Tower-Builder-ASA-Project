@@ -18,7 +18,7 @@
      clippy::indexing_slicing                     // Enforce bounds-checked access or iterators over raw 'v[i]'
 )]
 
-use std::io::{self, Read};
+use std::io::{self, Read, BufWriter, Write};
 use std::cmp::Ordering;
 
 /// Represents a 3D block in a specific canonical orientation where `w <= l`.
@@ -221,14 +221,29 @@ fn main() {
                     current_idx = *parent;
                }
           }
+
+          let stdout = io::stdout();
+          let mut writer = BufWriter::new(stdout.lock());
+
           
           let number_of_used_blocks: usize = used_blocks.len();
           
-          println!("{max_height} {number_of_used_blocks}");
+          if writeln!(writer, "{max_height} {number_of_used_blocks}").is_err() {
+               println!("Error while writing the output.");
+               return;
+          }
+          
           for idx in used_blocks {
                if let Some(b) = blocks.get(idx) {
-                    println!("{} {} {}", b.w, b.l, b.h);
+                    if writeln!(writer, "{} {} {}", b.w, b.l, b.h).is_err() {
+                         println!("Error while writing the output.");
+                         return;    
+                    }
                }
+          }
+          if writer.flush().is_err() {
+               println!("Error while flushing the output.");
+               return;
           }
      } else {
           println!("0");
