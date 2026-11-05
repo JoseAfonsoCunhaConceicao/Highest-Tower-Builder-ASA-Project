@@ -19,7 +19,7 @@
 )]
 
 use std::io::{self, Read};
-use std::cmp::{Ordering, max};
+use std::cmp::Ordering;
 
 /// Represents a 3D block in a specific canonical orientation where `w <= l`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +154,9 @@ fn main() {
      // New array with the block's heights
      let mut table: Vec<u32> = blocks.iter().map(|block| block.h).collect();
 
+     // Auxiliar array which stores the `parent` block index of each block
+     let mut parents: Vec<Option<usize>> = vec![None; blocks.len()];
+
      for big_idx in 0..blocks.len() {
           if let Some(current_block) = blocks.get(big_idx) {
                for little_idx in 0..big_idx {
@@ -182,7 +185,15 @@ fn main() {
                                    return;
                               }
 
-                              *current_height = max(*current_height, possible_new_height);
+                              if possible_new_height > *current_height {
+                                   *current_height = possible_new_height;
+                                   if let Some(parent) = parents.get_mut(big_idx) {
+                                        *parent = Some(little_idx);
+                                   } else {
+                                        println!("Error while idetifying block parent.");
+                                        return;
+                                   }
+                              }
                          }
                     } else {
                          println!("Error while calcuating the tower max height.");
@@ -195,8 +206,31 @@ fn main() {
           }
      }
 
-     if let Some(&max_height) = table.iter().max() {
-          println!("{max_height}");
+     // Obtain max height and the tower top block
+     if let Some((best_idx,&max_height)) = table.iter()
+          .enumerate()
+          .max_by_key(|&(_idx, &val)| val) {
+          
+          let mut used_blocks: Vec<usize> = Vec::with_capacity(blocks.len());
+
+          let mut current_idx = Some(best_idx);
+
+          while let Some(idx) = current_idx {
+               used_blocks.push(idx);
+               if let Some(parent) = parents.get(idx) {
+                    current_idx = *parent;
+               }
+          }
+          
+          let number_of_used_blocks: usize = used_blocks.len();
+          used_blocks.reverse();
+          
+          println!("{max_height} {number_of_used_blocks}");
+          for idx in used_blocks {
+               if let Some(b) = blocks.get(idx) {
+                    println!("{} {} {}", b.w, b.l, b.h);
+               }
+          }
      } else {
           println!("0");
      }
