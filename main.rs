@@ -159,44 +159,29 @@ fn main() {
 
      for big_idx in 0..blocks.len() {
           if let Some(current_block) = blocks.get(big_idx) {
-               let mut best_height = current_block.h;
+               let mut max_base_height: u32 = 0;
                let mut best_parent = None;
 
-               for little_idx in 0..big_idx {
-                    if let Some(block) = blocks.get(little_idx) {
-                         if current_block.w <= block.w {
-                              break; // Early Break
-                         } else if current_block.l > block.l {
-                              let base_height;
-                              
-                              let possible_new_height;
-                              
-                              if let Some(height) = table.get(little_idx) {
-                                   base_height = *height;
-                              } else {
-                                   println!("Error while calcuating the tower max height.");
-                                   return; 
-                              }
-                              if let Some(height) = base_height.checked_add(current_block.h) {
-                                   possible_new_height = height;
-                              } else {
-                                   println!("Error while calcuating the tower max height.");
-                                   return; 
-                              }
-                              
-                              if possible_new_height > best_height {
-                                   best_height = possible_new_height;
-                                   best_parent = Some(little_idx);
-                              }
+               for (little_idx, (block, &base_height)) in 
+                    blocks.iter().zip(&table).take(big_idx).enumerate() {
+                    
+                    if current_block.w <= block.w {
+                         break; // Early Break
+                    } else if current_block.l > block.l {
+                         if base_height > max_base_height {
+                              max_base_height = base_height;
+                              best_parent = Some(little_idx);
                          }
-                    } else {
-                         println!("Error while calcuating the tower max height.");
-                         return;
                     }
                }
 
                if let Some(height) = table.get_mut(big_idx) {
-                    *height = best_height;
+                    if let Some(best_height) = current_block.h.checked_add(max_base_height) {
+                         *height = best_height;
+                    } else {
+                         println!("Error while calcuating the tower max height.");
+                         return;
+                    }
                } else {
                     println!("Error while calculating the tower max height.");
                     return;
