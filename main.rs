@@ -267,10 +267,12 @@ fn main() {
           }
 
           for idx in used_blocks {
-               if let Some(b) = blocks.get(idx) {
-                    if writeln!(writer, "{} {} {}", b.w, b.l, b.h).is_err() {
-                         return;
-                    }
+               let Some(b) = blocks.get(idx) else {
+                    return;
+               };
+               
+               if writeln!(writer, "{} {} {}", b.w, b.l, b.h).is_err() {
+                    return;
                }
           }
 
