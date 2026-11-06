@@ -58,14 +58,66 @@ impl Block {
           ]
      }
 
-     /// Compares two blocks in topological order (biggest base first, tallest height first on ties).
+     /// Compares two blocks in topological order.
      #[must_use]
      fn cmp_topological(&self, other: &Self) -> Ordering {
         self.w
             .cmp(&other.w)
-            .then_with(|| self.l.cmp(&other.l))
+            .then_with(|| other.l.cmp(&self.l))
             .then_with(|| other.h.cmp(&self.h))
     }
+}
+
+struct FenwickTree {
+     height_and_block: Vec<(u32, Option<usize>)>
+}
+
+impl FenwickTree {
+     #[must_use]
+     fn new(size: usize) -> Self {
+          let height_and_block: Vec<(u32, Option<usize>)> = vec![(0, None); size + 1];
+          Self { height_and_block }
+     }
+
+     #[must_use]
+     fn query(&self, mut idx: usize) -> (u32, Option<usize>) {
+          let mut best = (0, None);
+          while idx > 0 {
+               if let Some((height, block_idx)) = 
+                    self.height_and_block.get(idx) {
+                    
+                    if *height > best.0 {
+                         best.0 = *height;
+                         best.1 = *block_idx;
+                    }
+               } else {
+                    println!("Error while obtaining Tree element.");
+                    return (0, None);
+               }
+
+               idx -= idx & (!idx + 1);
+          }
+
+          best
+     }
+
+     fn update(&mut self, mut idx: usize, height: u32, block_idx: usize) {
+          while idx < self.height_and_block.len() {
+               if let Some((stored_height, stored_block_idx)) =
+                    self.height_and_block.get_mut(idx) {
+                    
+                    if height > *stored_height {
+                         *stored_height = height;
+                         *stored_block_idx = Some(block_idx);
+                    }
+               } else {
+                    println!("Error while updating Tree element.");
+                    return;
+               }
+
+               idx += idx & (!idx + 1);
+          }
+     }
 }
 
 
@@ -151,6 +203,14 @@ fn main() {
      // Filter duplicated blocks (same base), keeps the tallest
      blocks.dedup_by(|a, b| { a.w == b.w && a.l == b.l });
 
+     // New array with the block's lenghts
+     let mut unique_l: Vec<u32> = blocks.iter().map(|block| block.l).collect();
+     unique_l.sort_unstable();
+     unique_l.dedup();
+
+     // New tree
+     let mut tree = FenwickTree::new(unique_l.len());
+
      // New array with the block's heights
      let mut table: Vec<u32> = blocks.iter().map(|block| block.h).collect();
 
@@ -159,36 +219,36 @@ fn main() {
 
      for big_idx in 0..blocks.len() {
           if let Some(current_block) = blocks.get(big_idx) {
-               let mut max_base_height: u32 = 0;
-               let mut best_parent = None;
+               let Ok(l_idx) = unique_l.binary_search(&current_block.l) else {
+                    println!("Error: length not found in unique_l.");
+                    return;
+               };
 
-               for (little_idx, (block, &base_height)) in 
-                    blocks.iter().zip(&table).take(big_idx).enumerate() {
+               let best_base_height_and_parent = 
+                    tree.query(l_idx);
+               
+               let best_height: u32;
+               
+               if let Some(new_height) =
+                    best_base_height_and_parent.0.checked_add(current_block.h) {
                     
-                    if current_block.w <= block.w {
-                         break; // Early Break
-                    } else if current_block.l > block.l {
-                         if base_height > max_base_height {
-                              max_base_height = base_height;
-                              best_parent = Some(little_idx);
-                         }
-                    }
+                    best_height = new_height;
+               } else {
+                    println!("Error while finding block best comulative height.");
+                    return;
                }
 
+               tree.update(l_idx + 1, best_height, big_idx);
+
                if let Some(height) = table.get_mut(big_idx) {
-                    if let Some(best_height) = current_block.h.checked_add(max_base_height) {
                          *height = best_height;
-                    } else {
-                         println!("Error while calcuating the tower max height.");
-                         return;
-                    }
                } else {
                     println!("Error while calculating the tower max height.");
                     return;
                }
 
                if let Some(parent) = parents.get_mut(big_idx) {
-                    *parent = best_parent;
+                    *parent = best_base_height_and_parent.1;
                } else {
                     println!("Error while identifying block parent.");
                     return;
