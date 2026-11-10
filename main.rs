@@ -3,69 +3,56 @@
 //! High-performance, memory-safe solution for the 3D Box Stacking problem.
 //! Built in compliance with NASA JPL's "Power of Ten" safety-critical rules.
 
-// 1. Native `rustc` lints (always enforced, including on Mooshak)
-#![forbid(unsafe_code)]                           // Enforce 100% memory safety
-#![deny(warnings)]                                // NASA Rule 10: treat all warnings as errors
-#![deny(unconditional_recursion)]                 // NASA Rule 1: forbid direct recursion
-#![deny(missing_docs)]                            // Enforce '///' documentation on all public items
+// 1. Native `rustc` compiler lints
+#![deny(unconditional_recursion)]       // NASA Rule 1: Avoid complex flow constructs (forbid direct/indirect unbounded recursion)
+#![forbid(unsafe_code)]                 // NASA Rule 3: Do not rely on dynamic features/memory bugs (enforce absolute memory safety)
+#![deny(warnings)]                      // NASA Rule 10: All warnings must be treated as errors and resolved before flight
+#![deny(missing_docs)]                  // NASA Rule 10: Code clarity and documentation on all accessible structures
 
-// Static analysis `clippy` lints (enforced locally via `cargo clippy`)
+// 2. Static analysis `clippy` lints
 #![deny(
-     clippy::all,                                 // Standard correctness, style and performance lints
-     clippy::pedantic,                            // NASA Rule 10: strict pedantic static analysis
-     clippy::unwrap_used,                         // NASA Rule 7: forbid '.unwrap()', require explicit handling
-     clippy::expect_used,                         // NASA Rule 7: forbid '.expect()', prevent unexpected panics
-     clippy::indexing_slicing                     // Enforce bounds-checked access or iterators over raw 'v[i]'
+     clippy::all,                       // NASA Rule 10: Enable all standard correctness, performance, and correctness checks
+     clippy::pedantic,                  // NASA Rule 10: Strict pedantic static analysis (stricter than default standards)
+     clippy::unwrap_used,               // NASA Rule 7: Forbid `.unwrap()`, ensuring all error flows and returns are explicitly checked
+     clippy::expect_used,               // NASA Rule 7: Forbid `.expect()`, preventing unexpected panic panics and crashes
+     clippy::indexing_slicing           // NASA Rule 2: Give all loops/arrays fixed bounds; prevent unchecked raw slices or `v[i]`
 )]
 
 use std::cmp::Ordering;
 use std::io::{self, BufWriter, Read, Write};
 
-/// Represents a 3D block in a specific canonical orientation where `w <= l`.
+/// Sentinel value indicating the absence of a parent block index (equivalent to `None`).
+const NO_BLOCK: u32 = u32::MAX;
+
+/// Represents a 3D block in a canonical orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Block {
-     /// Width of the base (always the smaller or equal base dimension: `w <= l`).
+     /// Width of the base (enforced invariant: `w <= l`).
      w: u32,
-     /// Length of the base (always the larger or equal base dimension: `l >= w`).
+     /// Length of the base (or compressed rank during the dynamic programming phase).
      l: u32,
      /// Vertical height of the block in this orientation.
      h: u32,
 }
 
 impl Block {
-     /// Creates a new canonical [`Block`] orientation, enforcing the `w <= l` invariant.
+     /// Creates a new canonical [`Block`] with given dimensions.
      #[must_use]
-     const fn new(side_a: u32, side_b: u32, height: u32) -> Self {
-          debug_assert!(side_a > 0 && side_b > 0 && height > 0,
-               "All block dimensions must be strictly positive."
-          );
-          
-          let (w, l) = if side_a <= side_b {
-               (side_a, side_b)
-          } else {
-               (side_b, side_a)
-          };
-
-          Self { w, l, h: height }
-     }
-
-     /// Generates the 3 canonical orientations for a raw [`Block`] of dimensions `(d1, d2, d3)`.
-     #[must_use]
-     const fn orientations(d1: u32, d2: u32, d3: u32) -> [Self; 3] {
-          [
-               Self::new(d1, d2, d3),
-               Self::new(d3, d1, d2),
-               Self::new(d3, d2, d1),
-          ]
+     #[inline]
+     const fn new(w: u32, l: u32, h: u32) -> Self {
+          Self { w, l, h }
      }
 
      /// Compares two blocks in topological sweep-line order.
      ///
-     /// # Order Invariants:
-     /// 1. `w` ascending: Ensures blocks arrive in increasing width order.
-     /// 2. `l` descending: Prevents blocks with equal width from stacking on each other.
-     /// 3. `h` descending: Groups identical bases with the tallest block appearing first.
+     /// Sorting Rationale:
+     /// 1. `w` ASC: processes smaller base widths first.
+     /// 2. `l` DESC: for identical widths `w`, processes larger lengths first.
+     ///    This prevents boxes with the same width and different lengths from illegally
+     ///    stacking on top of each other inside the Fenwick Tree.
+     /// 3. `h` DESC: tie-breaker by descending height.
      #[must_use]
+     #[inline]
      fn cmp_topological(&self, other: &Self) -> Ordering {
           self.w
               .cmp(&other.w)
@@ -74,67 +61,83 @@ impl Block {
      }
 }
 
-/// A Fenwick Tree (Binary Indexed Tree) tracking the maximum tower height
-/// and the index of the corresponding top block for prefix queries.
+/// A cache-optimized Fenwick Tree (Binary Indexed Tree) using Structure of Arrays (`SoA`).
 struct FenwickTree {
-     /// 1-based internal storage: index `i` maps to `(max_height, Option<block_index>)`.
-     height_and_block: Vec<(u32, Option<usize>)>,
+     /// Stores maximum prefix heights per coordinate rank.
+     heights: Vec<u32>,
+     /// Stores the 32-bit index of the top block producing the corresponding height.
+     blocks: Vec<u32>,
 }
 
 impl FenwickTree {
      /// Creates an empty [`FenwickTree`] sized for `size` compressed coordinates.
      #[must_use]
      fn new(size: usize) -> Self {
-          // Extra slot allocated at index 0 to support standard 1-based indexing.
-          let height_and_block: Vec<(u32, Option<usize>)> = vec![(0, None); size + 1];
-          Self { height_and_block }
+          let capacity = size.saturating_add(1);
+          Self {
+               heights: vec![0; capacity],
+               blocks: vec![NO_BLOCK; capacity],
+          }
      }
 
-     /// Queries the maximum accumulated height and top block index in the prefix `1..=idx`.
-     ///
-     /// Returns `(0, None)` if `idx == 0` or if no predecessor exists in that range.
+     /// Queries the maximum accumulated height and corresponding top block in the prefix `1..=idx`.
      #[must_use]
-     fn query(&self, mut idx: usize) -> (u32, Option<usize>) {
-          let mut best = (0, None);
+     #[inline]
+     fn query(&self, mut idx: usize) -> (u32, u32) {
+          let mut best_h = 0;
+          let mut best_b = NO_BLOCK;
+
           while idx > 0 {
-               if let Some((height, block_idx)) = self.height_and_block.get(idx) {
-                    if *height > best.0 {
-                         best.0 = *height;
-                         best.1 = *block_idx;
+               if let Some(&h) = self.heights.get(idx) {
+                    if h > best_h {
+                         best_h = h;
+                         if let Some(&b) = self.blocks.get(idx) {
+                              best_b = b;
+                         }
                     }
                } else {
-                    return (0, None);
+                    break;
                }
 
-               // Clears the lowest set bit (LSB) to step back through prefix intervals.
-               idx -= idx & (!idx).wrapping_add(1);
+               // Clears the least significant bit (LSB) in a single native instruction (e.g. BLSR on x86_64).
+               // Equivalent to: idx -= idx & (!idx + 1), but without signed overflow.
+               idx &= idx.wrapping_sub(1);
           }
 
-          best
+          (best_h, best_b)
      }
 
-     /// Updates the tree at position `idx` if `height` strictly exceeds the stored value.
-     fn update(&mut self, mut idx: usize, height: u32, block_idx: usize) {
-          while idx < self.height_and_block.len() {
-               if let Some((stored_height, stored_block_idx)) = self.height_and_block.get_mut(idx) {
-                    if height > *stored_height {
-                         *stored_height = height;
-                         *stored_block_idx = Some(block_idx);
+     /// Updates the Fenwick Tree at position `idx` if `height` strictly exceeds the stored value.
+     #[inline]
+     fn update(&mut self, mut idx: usize, height: u32, block_idx: u32) {
+          let len = self.heights.len();
+          while idx < len {
+               // Inspects first via a shared read to avoid heap writes
+               // if the new height does not exceed the node's current best.
+               let needs_update = self.heights.get(idx).is_some_and(|&h| height > h);
+               if needs_update {
+                    if let Some(h) = self.heights.get_mut(idx) {
+                         *h = height;
                     }
-               } else {
-                    return;
+                    if let Some(b) = self.blocks.get_mut(idx) {
+                         *b = block_idx;
+                    }
                }
 
-               // Adds the lowest set bit (LSB) to propagate the update upwards.
-               idx += idx & (!idx).wrapping_add(1);
+               // Adds the LSB to propagate the update to ancestor nodes in the tree:
+               // idx += idx & (-idx) safely implemented without signed integer conversion.
+               idx = idx.wrapping_add(idx & (!idx).wrapping_add(1));
           }
      }
 }
 
 /// Extracts the next positive integer `u32` from a raw byte buffer.
+///
+/// Implements linear-time parsing with zero intermediate allocations.
 #[must_use]
+#[inline]
 fn next_u32(buffer: &[u8], cursor: &mut usize) -> Option<u32> {
-     // 1. Skip whitespace characters
+     // Consumes any leading whitespace characters or line breaks
      while let Some(&byte) = buffer.get(*cursor) {
           if byte.is_ascii_whitespace() {
                *cursor += 1;
@@ -147,12 +150,13 @@ fn next_u32(buffer: &[u8], cursor: &mut usize) -> Option<u32> {
           return None;
      }
 
-     // 2. Parse sequential ASCII decimal digits without panicking
+     // Accumulates digits with strict arithmetic checks against overflow
      let mut value: u32 = 0;
      while let Some(&byte) = buffer.get(*cursor) {
           if byte.is_ascii_digit() {
-               let digit = u32::from(byte - b'0');
-               value = value.checked_mul(10)?.checked_add(digit)?;
+               value = value
+                    .checked_mul(10)?
+                    .checked_add(u32::from(byte - b'0'))?;
                *cursor += 1;
           } else {
                break;
@@ -162,121 +166,151 @@ fn next_u32(buffer: &[u8], cursor: &mut usize) -> Option<u32> {
      Some(value)
 }
 
-/// Entry point of the solver.
-fn main() {
+/// Normalizes dimensions and pushes up to 3 non-duplicate orientations directly into the target buffer.
+#[inline]
+fn push_orientations(target: &mut Vec<Block>, mut d1: u32, mut d2: u32, mut d3: u32) {
+     // 3-element sorting network ensuring d1 <= d2 <= d3 in just 3 comparisons.
+     // This guarantees the canonical invariant w <= l without requiring subsequent checks.
+     if d1 > d2 { std::mem::swap(&mut d1, &mut d2); }
+     if d2 > d3 { std::mem::swap(&mut d2, &mut d3); }
+     if d1 > d2 { std::mem::swap(&mut d1, &mut d2); }
+
+     // 1. Orientation using d1 and d2 as the base, and d3 as the height
+     target.push(Block::new(d1, d2, d3));
+
+     // 2. If d2 != d3, rotating to place d3 on the base yields a distinct orientation
+     if d2 != d3 {
+          target.push(Block::new(d1, d3, d2));
+     }
+
+     // 3. If d1 != d2, using d2 and d3 for the base yields another non-equivalent rotation
+     if d1 != d2 {
+          target.push(Block::new(d2, d3, d1));
+     }
+}
+
+/// Ingests data from standard input and prepares canonical sorted blocks with compressed coordinates.
+#[must_use]
+fn prepare_blocks() -> Option<(Vec<Block>, Vec<u32>)> {
      let mut buffer = Vec::new();
      let mut cursor: usize = 0;
 
-     if io::stdin().read_to_end(&mut buffer).is_err() {
-          println!("Error while reading input.");
-          return;
+     // Locks the input stream for bulk reading without repeated locking overhead
+     io::stdin().lock().read_to_end(&mut buffer).ok()?;
+
+     let n = next_u32(&buffer, &mut cursor)?;
+     let n_usize = usize::try_from(n).ok()?;
+     let max_orientations = n_usize.checked_mul(3)?;
+
+     let mut blocks: Vec<Block> = Vec::with_capacity(max_orientations);
+
+     for _ in 0..n_usize {
+          let s1 = next_u32(&buffer, &mut cursor)?;
+          let s2 = next_u32(&buffer, &mut cursor)?;
+          let s3 = next_u32(&buffer, &mut cursor)?;
+          push_orientations(&mut blocks, s1, s2, s3);
      }
 
-     let Some(n) = next_u32(&buffer, &mut cursor) else {
-          println!("Error while reading input: failed while obtaining N.");
-          return;
-     };
-
-     let Ok(number_of_blocks) = usize::try_from(n) else {
-          println!("Error: N is too large for memory indexing.");
-          return;
-     };
-
-     // Each 3D box produces 3 canonical orientations
-     let number_of_orientations = number_of_blocks * 3;
-     let mut blocks: Vec<Block> = Vec::with_capacity(number_of_orientations);
-
-     for _ in 0..number_of_blocks {
-          let Some(side_a) = next_u32(&buffer, &mut cursor) else { return; };
-          let Some(side_b) = next_u32(&buffer, &mut cursor) else { return; };
-          let Some(height) = next_u32(&buffer, &mut cursor) else { return; };
-
-          blocks.extend(Block::orientations(side_a, side_b, height));
-     }
-
-     // Step 1: Topological Sort
-     // Primary: w ascending. Secondary: l descending. Tertiary: h descending.
-     blocks.sort_unstable_by(Block::cmp_topological);
-
-     // Step 2: Deduplication
-     // For identical bases (w, l), keep only the first (tallest) block.
-     blocks.dedup_by(|a, b| a.w == b.w && a.l == b.l);
-
-     // Step 3: Coordinate Compression on base lengths (l)
-     // Maps sparse length values into a contiguous 1-based range for Fenwick indexing.
-     let mut unique_l: Vec<u32> = blocks.iter().map(|block| block.l).collect();
+     // Collects and sorts distinct L values for coordinate compression (offline ranking)
+     let mut unique_l: Vec<u32> = blocks.iter().map(|b| b.l).collect();
      unique_l.sort_unstable();
      unique_l.dedup();
+     
+     // Directly remaps each 'l' to its index [0..unique_l.len()-1].
+     // This completely eliminates calls to `binary_search` during the main DP loop.
+     for b in &mut blocks {
+          let Ok(idx) = unique_l.binary_search(&b.l) else { return None; };
+          b.l = u32::try_from(idx).ok()?;
+     }
 
-     let mut tree = FenwickTree::new(unique_l.len());
-     let mut table: Vec<u32> = Vec::with_capacity(blocks.len());
-     let mut parents: Vec<Option<usize>> = vec![None; blocks.len()];
+     // Topologically sorts to enable a sweep-line scan
+     blocks.sort_unstable_by(Block::cmp_topological);
+     // Removes boxes with strictly identical bases and orientations
+     blocks.dedup_by(|a, b| a.w == b.w && a.l == b.l);
 
-     // Step 4: Sweep-line processing with O(log M) transitions
-     for (big_idx, current_block) in blocks.iter().enumerate() {
-          let Ok(l_idx) = unique_l.binary_search(&current_block.l) else {
-               println!("Error: length not found in unique_l.");
-               return;
-          };
+     Some((blocks, unique_l))
+}
 
-          // Querying `l_idx` (0-based search index) queries elements strictly smaller
-          // than the current length's 1-based tree index (`l_idx + 1`).
-          let best_base = tree.query(l_idx);
+/// Solves the 3D box stacking dynamic programming sequence using coordinate sweep-line.
+#[must_use]
+fn solve(blocks: &[Block], l_domain_size: usize) -> Option<(Vec<usize>, u32)> {
+     if blocks.is_empty() {
+          return Some((Vec::new(), 0));
+     }
 
-          // Arithmetic overflow protection per NASA safety rules
-          let Some(best_height) = best_base.0.checked_add(current_block.h) else {
-               println!("Error while calculating cumulative tower height.");
-               return;
-          };
+     let mut tree = FenwickTree::new(l_domain_size);
+     // Predecessor array for path reconstruction at the end (4 bytes per block)
+     let mut parents: Vec<u32> = vec![NO_BLOCK; blocks.len()];
 
-          // Register current block into the Fenwick Tree at its 1-based index (`l_idx + 1`)
-          tree.update(l_idx + 1, best_height, big_idx);
+     let mut max_h: u32 = 0;
+     let mut best_idx: u32 = NO_BLOCK;
 
-          table.push(best_height);
+     for (idx, b) in blocks.iter().enumerate() {
+          let idx_u32 = u32::try_from(idx).ok()?;
+          let l_rank = usize::try_from(b.l).ok()?;
 
-          if let Some(parent) = parents.get_mut(big_idx) {
-               *parent = best_base.1;
-          } else {
-               println!("Error while recording block predecessor.");
+          // Queries the tree for the best tower whose base is strictly smaller (1..=l_rank)
+          let (base_h, parent) = tree.query(l_rank);
+          let total_h = base_h.checked_add(b.h)?;
+
+          // Updates position (l_rank + 1) in the Fenwick Tree (1-based indexing)
+          tree.update(l_rank.checked_add(1)?, total_h, idx_u32);
+
+          if let Some(p) = parents.get_mut(idx) {
+               *p = parent;
+          }
+
+          if total_h > max_h {
+               max_h = total_h;
+               best_idx = idx_u32;
+          }
+     }
+
+     // Backtracks to reconstruct the optimal block stack
+     let mut path = Vec::new();
+     let mut curr = best_idx;
+     while curr != NO_BLOCK {
+          let curr_usize = usize::try_from(curr).ok()?;
+          path.push(curr_usize);
+          curr = parents.get(curr_usize).copied()?;
+     }
+
+     Some((path, max_h))
+}
+
+/// Formats and writes the reconstructed tower to standard output with decompressed dimensions.
+fn write_result(blocks: &[Block], unique_l: &[u32], path: &[usize], total_h: u32) {
+     let stdout = io::stdout();
+     // Generous 64 KB buffer to minimize context switches across I/O syscalls
+     let mut writer = BufWriter::with_capacity(65_536, stdout.lock());
+
+     if writeln!(writer, "{total_h} {}", path.len()).is_err() {
+          return;
+     }
+
+     for &idx in path {
+          let Some(b) = blocks.get(idx) else { return; };
+          let Ok(l_idx) = usize::try_from(b.l) else { return; };
+          // Retrieves the actual metric value of L from the compressed rank
+          let Some(&actual_l) = unique_l.get(l_idx) else { return; };
+
+          if writeln!(writer, "{} {} {}", b.w, actual_l, b.h).is_err() {
                return;
           }
      }
 
-     // Step 5: Tower reconstruction from the optimal top block back down to the base
-     if let Some((best_idx, &max_height)) =
-          table.iter().enumerate().max_by_key(|&(_idx, &val)| val) {
-          
-          let mut used_blocks: Vec<usize> = Vec::with_capacity(blocks.len());
-          let mut current_idx = Some(best_idx);
+     let _ = writer.flush();
+}
 
-          while let Some(idx) = current_idx {
-               used_blocks.push(idx);
-               if let Some(parent) = parents.get(idx) {
-                    current_idx = *parent;
-               } else {
-                    break;
-               }
-          }
+/// Entry point of the solver.
+fn main() {
+     let Some((blocks, unique_l)) = prepare_blocks() else {
+          println!("0");
+          return;
+     };
 
-          let stdout = io::stdout();
-          let mut writer = BufWriter::new(stdout.lock());
-          let number_of_used_blocks = used_blocks.len();
-
-          if writeln!(writer, "{max_height} {number_of_used_blocks}").is_err() {
-               return;
-          }
-
-          for idx in used_blocks {
-               let Some(b) = blocks.get(idx) else {
-                    return;
-               };
-               
-               if writeln!(writer, "{} {} {}", b.w, b.l, b.h).is_err() {
-                    return;
-               }
-          }
-
-          let _ = writer.flush();
+     if let Some((path, total_h)) = solve(&blocks, unique_l.len()) {
+          write_result(&blocks, &unique_l, &path, total_h);
      } else {
           println!("0");
      }
