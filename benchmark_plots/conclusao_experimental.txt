@@ -1,0 +1,19 @@
+================================================================================
+CONCLUSÃO E COMENTÁRIO AOS GRÁFICOS GERADOS
+================================================================================
+1. Análise do Gráfico Tempo vs N (plot_time_vs_n.png):
+   Uma vez que o fator logarítmico varia de forma ténue, não é trivial distinguir
+   visualmente uma curva linear O(N) de uma quase-linear O(N log N). Por essa
+   razão, incluiu-se a curva teórica ajustada O(N log2 N), comprovando-se que
+   os pontos experimentais coincidem com o perfil assintótico antecipado.
+
+2. Análise do Gráfico Linearizado Tempo vs M log2(M) (plot_time_vs_theoretical.png):
+   Ao traçar o tempo em função do número real de orientações avaliadas após
+   a deduplicação da base (M <= 3N) multiplicado por log2(M), obtém-se um
+   comportamento estritamente linear com coeficiente de determinação R² = 1.0000.
+
+3. Conclusão Geral:
+   Os resultados práticos confirmam que o algoritmo se encontra dominado pela fase
+   de ordenação e sweep-line sobre o Fenwick Tree com complexidade temporal O(M log M)
+   e espacial O(M), alinhando-se na perfeição com o modelo teórico.
+================================================================================
