@@ -38,7 +38,7 @@ struct Block {
 impl Block {
      /// Creates a new canonical [`Block`] with given dimensions.
      #[must_use]
-     #[inline(always)]
+     #[inline]
      const fn new(w: u32, l: u32, h: u32) -> Self {
           Self { w, l, h }
      }
@@ -52,7 +52,7 @@ impl Block {
      ///    stacking on top of each other inside the Fenwick Tree.
      /// 3. `h` DESC: tie-breaker by descending height.
      #[must_use]
-     #[inline(always)]
+     #[inline]
      fn cmp_topological(&self, other: &Self) -> Ordering {
           self.w
               .cmp(&other.w)
@@ -82,7 +82,7 @@ impl FenwickTree {
 
      /// Queries the maximum accumulated height and corresponding top block in the prefix `1..=idx`.
      #[must_use]
-     #[inline(always)]
+     #[inline]
      fn query(&self, mut idx: usize) -> (u32, u32) {
           let mut best_h = 0;
           let mut best_b = NO_BLOCK;
@@ -108,7 +108,7 @@ impl FenwickTree {
      }
 
      /// Updates the Fenwick Tree at position `idx` if `height` strictly exceeds the stored value.
-     #[inline(always)]
+     #[inline]
      fn update(&mut self, mut idx: usize, height: u32, block_idx: u32) {
           let len = self.heights.len();
           while idx < len {
@@ -135,7 +135,7 @@ impl FenwickTree {
 ///
 /// Implements linear-time parsing with zero intermediate allocations.
 #[must_use]
-#[inline(always)]
+#[inline]
 fn next_u32(buffer: &[u8], cursor: &mut usize) -> Option<u32> {
      // Consumes any leading whitespace characters or line breaks
      while let Some(&byte) = buffer.get(*cursor) {
@@ -167,7 +167,7 @@ fn next_u32(buffer: &[u8], cursor: &mut usize) -> Option<u32> {
 }
 
 /// Normalizes dimensions and pushes up to 3 non-duplicate orientations directly into the target buffer.
-#[inline(always)]
+#[inline]
 fn push_orientations(target: &mut Vec<Block>, mut d1: u32, mut d2: u32, mut d3: u32) {
      // 3-element sorting network ensuring d1 <= d2 <= d3 in just 3 comparisons.
      // This guarantees the canonical invariant w <= l without requiring subsequent checks.
@@ -191,7 +191,7 @@ fn push_orientations(target: &mut Vec<Block>, mut d1: u32, mut d2: u32, mut d3: 
 
 /// Ingests data from standard input and prepares canonical sorted blocks with compressed coordinates.
 #[must_use]
-#[inline(always)]
+#[inline]
 fn prepare_blocks() -> Option<(Vec<Block>, Vec<u32>)> {
      let mut buffer = Vec::new();
      let mut cursor: usize = 0;
@@ -234,7 +234,7 @@ fn prepare_blocks() -> Option<(Vec<Block>, Vec<u32>)> {
 
 /// Solves the 3D box stacking dynamic programming sequence using coordinate sweep-line.
 #[must_use]
-#[inline(always)]
+#[inline]
 fn solve(blocks: &[Block], l_domain_size: usize) -> Option<(Vec<usize>, u32)> {
      if blocks.is_empty() {
           return Some((Vec::new(), 0));
@@ -281,7 +281,7 @@ fn solve(blocks: &[Block], l_domain_size: usize) -> Option<(Vec<usize>, u32)> {
 }
 
 /// Formats and writes the reconstructed tower to standard output with decompressed dimensions.
-#[inline(always)]
+#[inline]
 fn write_result(blocks: &[Block], unique_l: &[u32], path: &[usize], total_h: u32) {
      let stdout = io::stdout();
      // Generous 64 KB buffer to minimize context switches across I/O syscalls
