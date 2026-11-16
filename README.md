@@ -1,5 +1,6 @@
 # Highest Tower Builder (3D Box Stacking)
 
+[![CI](https://github.com/JoseAfonsoCunhaConceicao/Highest-Tower-Builder-ASA-Project/actions/workflows/ci.yml/badge.svg)](https://github.com/JoseAfonsoCunhaConceicao/Highest-Tower-Builder-ASA-Project/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](https://www.rust-lang.org/)
 [![Complexity](https://img.shields.io/badge/time%20complexity-O(M%20log%20M)-blue.svg)]()
 [![Space Complexity](https://img.shields.io/badge/space%20complexity-O(M)-brightgreen.svg)]()
