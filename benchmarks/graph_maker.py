@@ -34,20 +34,21 @@ SIZES = [5_000, 10_000, 20_000, 40_000, 60_000, 80_000, 100_000, 150_000, 200_00
 NUM_WARMUP = 10   # 10 execuções de warmup
 NUM_RUNS = 100    # 100 execuções reais
 
-INSTANCES_DIR = Path("./benchmark_instances")
-PLOTS_DIR = Path("./benchmark_plots")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+INSTANCES_DIR = PROJECT_ROOT / "benchmark_instances"
+PLOTS_DIR = PROJECT_ROOT / "docs" / "assets"
 
 
 def find_or_build_binary() -> str:
     """Compila o binário se necessário e deteta automaticamente o executável."""
     print("[+] A verificar compilação em release mode...")
-    build_res = subprocess.run(["cargo", "build", "--release"], capture_output=True, text=True)
+    build_res = subprocess.run(["cargo", "build", "--release"], cwd=PROJECT_ROOT, capture_output=True, text=True)
     if build_res.returncode != 0:
         print("[!] Erro na compilação com o cargo:")
         print(build_res.stderr)
         sys.exit(1)
 
-    target_dir = Path("./target/release")
+    target_dir = PROJECT_ROOT / "target" / "release"
     if not target_dir.exists():
         print("[!] Erro: Diretoria target/release não encontrada.")
         sys.exit(1)

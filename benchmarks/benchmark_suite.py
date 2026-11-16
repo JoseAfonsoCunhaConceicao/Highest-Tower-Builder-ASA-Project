@@ -4,6 +4,9 @@ import subprocess
 import time
 import random
 import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # C signed 32-bit int max is 2,147,483,647.
 # To ensure the total tower height h ALWAYS fits comfortably within a standard C int
@@ -69,10 +72,10 @@ if __name__ == "__main__":
 
     bin_name = "highest-tower-builder"
     possible_bins = [
-        f"./target/release/{bin_name}",
-        "./target/release/box_stacking",
+        str(PROJECT_ROOT / "target" / "release" / bin_name),
+        str(PROJECT_ROOT / "target" / "release" / "box_stacking"),
     ]
-    cmd = "cargo run --release"
+    cmd = f"cargo run --manifest-path {PROJECT_ROOT}/Cargo.toml --release"
     for b in possible_bins:
         if os.path.exists(b):
             cmd = b
