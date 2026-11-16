@@ -1,7 +1,41 @@
-/target
+# Rust build artifacts
+/target/
+**/*.rs.bk
 
-# Test files
-*.in
-
-# Mac config files
+# Operating System files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# IDE and Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# Document source files (kept locally)
+*.pages
+*.docx
+
+# Course statement & input/output test files
+p1.pdf
+*.in
+*.out
+
+# Raw benchmark data instances
+benchmark_instances/
