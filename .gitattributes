@@ -1,0 +1,11 @@
+# Set default behaviour to automatically normalize line endings to LF
+* text=auto eol=lf
+
+# Explicit binary files
+*.png binary
+*.pdf binary
+
+# Exclude auxiliary benchmark suite and scripts from repository language statistics
+# This ensures GitHub identifies the repository primary language as Rust (100%)
+benchmarks/** linguist-vendored
+benchmarks/** linguist-detectable=false
